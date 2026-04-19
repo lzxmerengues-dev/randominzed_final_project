@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Generated outputs (reproducible via `make quick`)
+results/
+figures/
+
+# Datasets (downloaded by user)
+data/ml-100k/
+data/ml-1m/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
