@@ -24,6 +24,24 @@ pip install -r requirements.txt
 
 Optional GPU support (Experiment 5): `pip install cupy-cuda12x`.
 
+### Running Experiment 5 on Google Colab (no local GPU required)
+
+If you do not have a CUDA GPU locally, the CPU-vs-GPU experiment can be reproduced on a free Colab T4:
+
+1. Open https://colab.research.google.com and create a new notebook.
+2. `Runtime` → `Change runtime type` → select `T4 GPU` → `Save`.
+3. Run the following in a cell:
+
+```python
+!git clone https://github.com/lzxmerengues-dev/randominzed_final_project.git
+%cd randominzed_final_project
+!pip install -r requirements.txt
+!pip install cupy-cuda12x
+!python experiments/exp5_cpu_vs_gpu.py
+```
+
+Outputs land in `results/exp5.json` and `figures/exp5_cpu_vs_gpu.{pdf,png}`; download them from the left file panel.
+
 ## Datasets
 
 The synthetic experiments (Exp 1, 2, 3, 5) run without any download.
