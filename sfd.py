@@ -166,8 +166,13 @@ def _boosted_shrink(
 # nnz-based batching (paper's Algorithm 1)
 # ---------------------------------------------------------------------------
 
-def _collect_batch(A_csr: sp.csr_matrix, start: int, ell: int, d: int) -> tuple[sp.csr_matrix, int]:
+def _collect_batch(A_csr: sp.csr_matrix, start: int, ell: int, d: int,
+                   max_rows: int | None = None) -> tuple[sp.csr_matrix, int]:
     """Accumulate rows of A from `start` until total nnz reaches ell*d (or end).
+
+    If `max_rows` is provided, the batch is also capped at that many rows
+    (whichever limit is hit first). Adaptive uses this to keep the FD branch's
+    SVD on a (≤2ell, d) matrix instead of the larger nnz-filled batch.
 
     Returns (batch, end) where batch = A[start:end] and `end` is the first
     row NOT included.
@@ -186,6 +191,8 @@ def _collect_batch(A_csr: sp.csr_matrix, start: int, ell: int, d: int) -> tuple[
         end = start + idx + 1   # include the row that pushed us past target
     else:
         end = n
+    if max_rows is not None:
+        end = min(end, start + max_rows)
     end = max(start + 1, min(end, n))  # always consume at least one row
     return A_csr[start:end], end
 

@@ -7,10 +7,16 @@ scripts. This module provides run_once / run_seeds only.
 from __future__ import annotations
 
 import time
+import warnings
 from typing import Any
 
 import numpy as np
 import scipy.sparse as sp
+
+# Silence spurious IEEE-flag warnings from Apple Accelerate BLAS matmul on
+# finite inputs (macOS/arm64). Results are unaffected.
+warnings.filterwarnings("ignore", message=".*encountered in matmul", category=RuntimeWarning)
+np.seterr(over="ignore", invalid="ignore", divide="ignore")
 
 from fd import frequent_directions
 from sfd import sparse_frequent_directions

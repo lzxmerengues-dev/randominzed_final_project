@@ -47,26 +47,42 @@ def adaptive_frequent_directions(
     log: list[dict] | None = [] if instrument else None
 
     while start < n:
-        batch, end = _collect_batch(A, start, ell, d)
-        if batch.shape[0] == 0:
+        # Peek at both candidate batches and compare amortised cost / row.
+        batch_fd, end_fd = _collect_batch(A, start, ell, d, max_rows=2 * ell)
+        batch_sfd, end_sfd = _collect_batch(A, start, ell, d)
+        if batch_fd.shape[0] == 0:
             break
 
-        rows_M = ell + batch.shape[0]
-        nnz_M = ell * d + batch.nnz  # dense sketch contributes ell*d
-        c_fd = alpha_fd * rows_M * d * ell
-        c_sfd = beta_sfd * (nnz_M * ell * n_iter + rows_M * ell * ell)
+        rows_fd = ell + batch_fd.shape[0]
+        rows_sfd = ell + batch_sfd.shape[0]
+        nnz_sfd_M = ell * d + batch_sfd.nnz
+        c_fd_per_row = alpha_fd * rows_fd * d * ell / batch_fd.shape[0]
+        c_sfd_per_row = (beta_sfd * (nnz_sfd_M * ell * n_iter
+                                    + rows_sfd * ell * ell)
+                        / max(batch_sfd.shape[0], 1))
 
-        if c_fd <= c_sfd:
-            # Exact SVD branch
+        if c_fd_per_row <= c_sfd_per_row:
+            # Exact SVD branch with FD-style 2ell batching
+            batch, end = batch_fd, end_fd
             M = np.vstack([B, batch.toarray()])
             _, s, Vt = np.linalg.svd(M, full_matrices=False)
             B_new = _shrink(s, Vt, ell)
             choice = "fd"
             attempts = 1
+            # retain costs reported at the FD batch size for logging
+            rows_M = rows_fd
+            nnz_M = ell * d + batch.nnz
+            c_fd = c_fd_per_row * batch.shape[0]
+            c_sfd = c_sfd_per_row * batch.shape[0]
         else:
-            # Randomised (SFD) branch
+            # Randomised (SFD) branch with nnz-based batching
+            batch, end = batch_sfd, end_sfd
             B_new, attempts = _boosted_shrink(B, batch, ell, n_iter, delta_prob)
             choice = "sfd"
+            rows_M = rows_sfd
+            nnz_M = nnz_sfd_M
+            c_fd = c_fd_per_row * batch.shape[0]
+            c_sfd = c_sfd_per_row * batch.shape[0]
 
         if log is not None:
             log.append({
