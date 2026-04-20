@@ -1,11 +1,15 @@
 """
 calibrate.py — Hardware calibration for the Adaptive FD/SFD cost model.
 
-Fits scalar coefficients (alpha_fd, beta_sfd) such that
-    T_FD  ≈ alpha_fd * (rows * d * ell)
-    T_SFD ≈ beta_sfd * (nnz * ell * n_iter + rows * ell^2)
+Fits a two-parameter (slope + intercept) cost model:
+    T_FD  ≈ alpha_fd  * (rows * d * ell)                    + fixed_fd
+    T_SFD ≈ beta_sfd  * (nnz * ell * n_iter + rows * ell^2) + fixed_sfd
 
-One-time cost (~30s on a laptop). Cached to ~/.cache/sfd_calibration/.
+The intercept captures BLAS / LAPACK fixed overhead that is significant for
+small matrices and dominates the per-batch cost for tiny shrinks. A slope-
+only fit systematically underestimates the advantage of SFD on small dense
+batches, which was the cause of Adaptive being slower than pure SFD on the
+mixed-density stream in the first experiment run.
 """
 from __future__ import annotations
 
@@ -33,14 +37,18 @@ def _time_fn(fn, n_repeat: int = 3) -> float:
     return float(min(times))
 
 
-def _fit_slope(data: list[tuple[float, float]]) -> float:
-    """Least-squares through the origin: slope = sum(x*y) / sum(x^2)."""
+def _fit_affine(data: list[tuple[float, float]]) -> tuple[float, float]:
+    """Least squares: y = slope * x + intercept. Returns (slope, max(0, intercept))."""
     xs = np.array([x for x, _ in data], dtype=float)
     ys = np.array([y for _, y in data], dtype=float)
-    denom = float(np.sum(xs ** 2))
-    if denom < 1e-30:
-        return 0.0
-    return float(np.sum(xs * ys) / denom)
+    if len(xs) < 2 or float(np.var(xs)) < 1e-30:
+        slope = float(np.sum(xs * ys) / max(float(np.sum(xs ** 2)), 1e-30))
+        return slope, 0.0
+    A = np.column_stack([xs, np.ones_like(xs)])
+    coefs, *_ = np.linalg.lstsq(A, ys, rcond=None)
+    slope, intercept = float(coefs[0]), float(coefs[1])
+    # Intercept is physically a fixed cost; negative values are fit noise.
+    return max(slope, 0.0), max(intercept, 0.0)
 
 
 def _cache_path(d: int, ell: int, device: str) -> Path:
@@ -59,9 +67,10 @@ def calibrate(
     use_cache: bool = True,
     verbose: bool = True,
 ) -> dict:
-    """Fit (alpha_fd, beta_sfd) on the local hardware.
+    """Fit (alpha_fd, fixed_fd, beta_sfd, fixed_sfd) on the local hardware.
 
-    Returns dict with keys {alpha_fd, beta_sfd, d, ell, device, grid}.
+    Returns dict with keys:
+        alpha_fd, fixed_fd, beta_sfd, fixed_sfd, d, ell, n_iter, device, grid.
     """
     if use_cache:
         path = _cache_path(d, ell, device)
@@ -71,8 +80,13 @@ def calibrate(
             return json.loads(path.read_text())
 
     rng = np.random.default_rng(seed)
-    # A small grid that spans the (rows, nnz) regime FD/SFD will see.
-    grid = [(200, 0.5), (200, 0.05), (500, 0.5), (500, 0.05), (1000, 0.01)]
+    # Grid spans small → larger shrink sizes and sparse → dense densities.
+    grid = [
+        (100,  0.5),  (100,  0.05),
+        (300,  0.5),  (300,  0.05),
+        (600,  0.5),  (600,  0.05),
+        (1000, 0.05), (1000, 0.01),
+    ]
 
     fd_data: list[tuple[float, float]] = []
     sfd_data: list[tuple[float, float]] = []
@@ -92,12 +106,14 @@ def calibrate(
             print(f"[calibrate]  rows={rows:5d} rho={rho:.2f}  "
                   f"t_fd={t_fd:6.3f}s  t_sfd={t_sfd:6.3f}s")
 
-    alpha_fd = _fit_slope(fd_data)
-    beta_sfd = _fit_slope(sfd_data)
+    alpha_fd, fixed_fd = _fit_affine(fd_data)
+    beta_sfd, fixed_sfd = _fit_affine(sfd_data)
 
     result = {
         "alpha_fd": alpha_fd,
+        "fixed_fd": fixed_fd,
         "beta_sfd": beta_sfd,
+        "fixed_sfd": fixed_sfd,
         "d": d,
         "ell": ell,
         "n_iter": n_iter,
@@ -105,7 +121,8 @@ def calibrate(
         "grid": grid,
     }
     if verbose:
-        print(f"[calibrate] fitted  alpha_fd={alpha_fd:.3e}  beta_sfd={beta_sfd:.3e}")
+        print(f"[calibrate] fit: alpha_fd={alpha_fd:.3e}  fixed_fd={fixed_fd*1000:.3f}ms  "
+              f"beta_sfd={beta_sfd:.3e}  fixed_sfd={fixed_sfd*1000:.3f}ms")
 
     if use_cache:
         path = _cache_path(d, ell, device)
@@ -118,6 +135,5 @@ def calibrate(
 
 
 if __name__ == "__main__":
-    # CLI: python calibrate.py — forces recalibration.
     c = calibrate(use_cache=False)
     print(json.dumps(c, indent=2))
