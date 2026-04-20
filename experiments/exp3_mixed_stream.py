@@ -29,8 +29,8 @@ RESULTS = ROOT / "results"
 FIGURES = ROOT / "figures"
 
 
-def run(n1: int = 20000, n2: int = 2000, d: int = 1000, ell: int = 20,
-        rho1: float = 0.005, rho2: float = 0.3, n_seeds: int = 3) -> dict:
+def run(n1: int = 20000, n2: int = 20000, d: int = 1000, ell: int = 20,
+        rho1: float = 0.005, rho2: float = 0.5, n_seeds: int = 3) -> dict:
     calib = calibrate(d=d, ell=ell)
     A = make_mixed_stream(n1, n2, d, rho1, rho2, seed=0)
     print(f"Mixed stream: {n1}+{n2}={n1+n2} rows, rho1={rho1} rho2={rho2}")
