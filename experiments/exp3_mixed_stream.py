@@ -74,28 +74,41 @@ def plot(data: dict, save_path: Path) -> None:
     ax1.set_title("Mixed-density stream: total time")
     ax1.grid(True, alpha=0.3, axis="y")
 
-    # Right: Adaptive's per-batch choice
-    ts = [r["t"] for r in log]
-    is_fd = [1 if r["choice"] == "fd" else 0 for r in log]
-    # Mark phase boundary via input row index
+    # Right: Adaptive's per-batch choice on a log-spaced x-axis so the few
+    # SFD batches near t=0 are visible alongside the long FD tail. Each
+    # batch is a coloured tick on a horizontal line; phase boundary is
+    # marked.
+    import numpy as np
+    from matplotlib.patches import Patch
+    ts = np.array([r["t"] for r in log], dtype=float)
+    is_fd = np.array([1 if r["choice"] == "fd" else 0 for r in log])
+    n_fd = int(is_fd.sum())
+    n_sfd = int((1 - is_fd).sum())
     phase_t = None
     for r in log:
         if r["start"] >= data["params"]["n1"]:
             phase_t = r["t"]
             break
 
-    ax2.bar(ts, is_fd, color="tab:blue", label="FD chosen", width=1.0)
-    ax2.bar(ts, [1 - x for x in is_fd], bottom=is_fd, color="tab:red",
-            label="SFD chosen", width=1.0)
+    # Plot SFD and FD batches as separate scatter series (log x, t+1).
+    sfd_ts = ts[is_fd == 0] + 1
+    fd_ts  = ts[is_fd == 1] + 1
+    ax2.scatter(sfd_ts, np.zeros_like(sfd_ts), marker="|",
+                color="tab:red", s=400, linewidths=2, label="SFD chosen")
+    ax2.scatter(fd_ts,  np.zeros_like(fd_ts),  marker="|",
+                color="tab:blue", s=400, linewidths=1, alpha=0.6,
+                label="FD chosen")
     if phase_t is not None:
-        ax2.axvline(phase_t - 0.5, color="k", ls="--", lw=1,
+        ax2.axvline(phase_t + 1 - 0.5, color="k", ls="--", lw=1.2,
                     label=f"phase boundary (t={phase_t})")
-    ax2.set_xlabel("Shrink index t")
-    ax2.set_ylabel("Choice")
-    ax2.set_yticks([0.5])
-    ax2.set_yticklabels(["adaptive"])
-    ax2.set_title("Adaptive's per-batch subroutine")
-    ax2.legend(fontsize=9)
+    ax2.set_xscale("log")
+    ax2.set_xlim(0.8, ts.max() + 5)
+    ax2.set_yticks([])
+    ax2.set_xlabel("Shrink index t (log scale, +1 offset)")
+    ax2.set_title(f"Adaptive's per-batch subroutine "
+                  f"(SFD×{n_sfd}, FD×{n_fd})")
+    ax2.legend(loc="upper right", fontsize=9, framealpha=0.9)
+    ax2.set_ylim(-1, 1)
 
     plt.tight_layout()
     save_path.parent.mkdir(parents=True, exist_ok=True)
