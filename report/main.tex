@@ -378,10 +378,10 @@ claims onto the experiments that verify them.
     Crossover near $\rho \approx 0.3$ \\
     $\rho_{\mathrm{eff}}(t) \ge \ell/(\ell+r_t)$ regardless of input $\rho$ &
     $\rho_{\mathrm{eff}}$ trajectory (Fig.~\ref{fig:rho-eff}) &
-    Floor holds for all $\rho \in \{0.005, 0.05, 0.3\}$ \\
-    Adaptive matches the better of FD/SFD at every density &
+    Floor holds for all $\rho \in \{0.005, 0.02, 0.05, 0.1, 0.2\}$ \\
+    Adaptive matches SFD across the density sweep and on real data &
     Density sweep (Fig.~\ref{fig:exp1}); real data (Fig.~\ref{fig:exp4}) &
-    Within seed-noise of lower envelope on 5/6 real cells, all synthetic \\
+    Within $\pm 5\%$ of SFD on synthetic; matches SFD on 5/6 real cells \\
     Adaptive strictly wins on density-mixed streams &
     Mixed stream (Fig.~\ref{fig:exp3}) &
     $1.14\times$ vs.\ SFD, $1.64\times$ vs.\ FD \\
@@ -419,9 +419,11 @@ the analytical bounds \eqref{eq:fd-bound} and \eqref{eq:sfd-bound}.
   \centering
   \includegraphics[width=0.7\linewidth]{exp1_density_sweep.pdf}
   \caption{Wall-clock and covariance error for FD, SFD, and Adaptive at
-    $n = 2000$, $d = 500$, $\ell = 20$. Adaptive tracks the lower envelope;
-    the empirical crossover sits near $\rho \approx 0.3$, far below the
-    textbook $\rho^\star = 0.96$.}
+    $n = 2000$, $d = 500$, $\ell = 20$. Adaptive tracks SFD to within $\pm
+    5\%$ across the sweep; the empirical crossover where FD overtakes SFD
+    sits near $\rho \approx 0.3$, far below the textbook $\rho^\star = 0.96$.
+    The Adaptive advantage emerges on density-mixed streams (Fig.~\ref{fig:exp3})
+    rather than on a fixed-density sweep.}
   \label{fig:exp1}
 \end{figure}
 
@@ -499,10 +501,12 @@ re-fitted GPU coefficients in this paper.
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.7\linewidth]{exp5_cpu_vs_gpu.pdf}
-  \caption{Density sweep on CPU (M4) and GPU (Colab T4). GPU FD is slower
-    than CPU FD at low $\rho$ due to kernel-launch overhead; GPU SFD is
-    faster than CPU SFD at every $\rho$. Adaptive's hardware calibration
-    automatically tracks the platform-specific crossover.}
+  \caption{Density sweep on CPU (M4) and GPU (Colab T4); pure FD and pure
+    SFD only --- a full Adaptive run on GPU was not collected. GPU FD is
+    slower than CPU FD at low $\rho$ due to kernel-launch overhead; GPU
+    SFD is faster than CPU SFD at every $\rho$. The relative cost of FD to
+    SFD shifts in SFD's favour on GPU, motivating the per-platform
+    calibration described in Section~\ref{ssec:calib}.}
   \label{fig:exp5}
 \end{figure}
 
@@ -518,7 +522,7 @@ Calibration adds a one-time $\sim$30 second cost that amortizes only for
 streams larger than $\sim$$10^5$ rows; on shorter streams a static threshold
 can match Adaptive in raw wall-clock. The covariance bound degrades
 multiplicatively with the fraction of SFD-handled batches, inheriting SFD's
-Las Vegas guarantee at worst (Section~\ref{ssec:adaptive-correct}).
+Monte~Carlo guarantee at worst (Section~\ref{ssec:adaptive-correct}).
 
 \textbf{Outlook.} Two natural extensions arise. First, a third branch using
 a sparse random projection could capture the ultra-sparse extreme where
