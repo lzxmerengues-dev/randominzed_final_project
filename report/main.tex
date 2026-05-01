@@ -121,24 +121,43 @@ will revisit in Section~\ref{sec:rho-eff}.
 \section{Contribution A: Adaptive FD/SFD}
 \label{sec:adaptive}
 
-% PARTNER TODO --- approx 1.25 pages, three subsections.
-
 \subsection{Algorithm}
 \label{ssec:adaptive-algo}
 
-% PARTNER: ~0.6 page.
-% At each shrink we have a candidate FD batch (capped at 2*ell rows, the
-% classical FD buffer size) and a candidate SFD batch (nnz-filled). Predict
-% the per-row cost of each branch and take the cheaper. Cite the per-row
-% normalisation since the two branches operate on differently-shaped buffers.
-%
-% Pseudocode block follows. Make sure to introduce alpha_fd, beta_sfd and
-% point forward to the calibration subsection.
-%
-% Discuss why the per-row form (rather than per-batch) is the right
-% comparison: it correctly handles the case where the SFD branch would do
-% one big shrink while the FD branch would do many small ones over the same
-% input range.
+The selector amortises a single conceptual decision per shrink: pick the
+branch --- either \textsc{ExactSvdShrink} (FD) or \textsc{BoostedSparseShrink}
+(SFD) --- with the lower predicted wall-clock per row of input consumed.
+
+Two batches are collected speculatively from the same starting cursor
+(Algorithm~\ref{alg:adaptive}, lines 1--2). The FD candidate is capped at
+$2\ell$ rows, the buffer size for which the dense $(\ell + r) \times d$ SVD
+inside FD is efficient. The SFD candidate is filled until the cumulative
+nonzero count of the appended rows reaches $\ell d$, the level at which the
+implicit buffer $M = [B; \mathrm{batch}]$ has $\rho_{\mathrm{eff}} \approx
+1/2$ in the asymptotic regime (Section~\ref{sec:rho-eff}). Whenever the
+input is sparse the SFD candidate spans many more rows than the FD candidate;
+when the input is dense both candidates collapse to roughly the same $2\ell$
+rows. This dual-batching is essential: applying a single batching rule to
+both branches systematically penalises one of them, since FD wants its dense
+SVD to remain on a tall-skinny buffer while SFD wants enough sparse mass for
+the SimultaneousIteration of \cite{halko2011randomsvd} to amortise its random
+projection.
+
+The two candidates are then compared on a per-row basis (lines 3--4):
+$c_{\mathrm{fd}}$ and $c_{\mathrm{sfd}}$ are the calibrated cost predictions
+divided by the number of rows that branch would consume. The slope
+coefficients $\alpha_{\mathrm{fd}}$ and $\beta_{\mathrm{sfd}}$ are platform-
+specific constants fitted offline (Section~\ref{ssec:calib}). The per-row
+form is the right comparison because the two candidates consume different
+amounts of input: a per-batch comparison would systematically prefer the
+branch with the smaller batch on dense input (where FD's small batch
+finishes quickly) and the branch with the larger batch on sparse input
+(where SFD's big batch consumes many rows in one shot), conflating per-flop
+efficiency with batch-size effects. Per-row normalisation isolates the
+former. A second design point: the SFD cost charges
+$\mathrm{nnz}(M_{\mathrm{sfd}})$ rather than $\mathrm{nnz}(\mathrm{batch})$
+because the dense sketch contributes $\ell d$ nonzeros to every shrink past
+the first --- a structural fact made precise in Section~\ref{sec:rho-eff}.
 
 \begin{algorithm}[t]
 \caption{\textsc{AdaptiveShrink} (one step of Adaptive FD/SFD)}
@@ -160,78 +179,153 @@ will revisit in Section~\ref{sec:rho-eff}.
 \subsection{Correctness}
 \label{ssec:adaptive-correct}
 
-% PARTNER: 3-4 sentences, no formal proof needed.
-%
-% Both branches return a sketch satisfying the FD invariant
-% (Liberty 2013, Lemma 3 / Ghashami-Liberty-Phillips 2016, Lemma 2.1), so the
-% per-batch choice is freely exchangeable. The output guarantee degrades to
-% the weaker of (1) and (2):
-%   ||A^T A - B^T B||_2 <= ||A - A_k||_F^2 / (alpha_mix * ell - k),
-% where alpha_mix in [6/41, 1] depends on the fraction of SFD-handled
-% batches. In the all-FD limit the bound recovers (1); in the all-SFD limit
-% it recovers (2). Note: this is informal --- we do not prove it.
+Both branches return a sketch satisfying the FD shrink invariant of
+\cite{liberty2013fd, ghashami2016sfd}, so any per-batch interleaving
+produces a legitimate rank-$\ell$ sketch and the order of branch choices
+does not invalidate the streaming guarantee. The output bound degrades to
+the weaker of \eqref{eq:fd-bound} and \eqref{eq:sfd-bound}:
+\begin{equation}
+\label{eq:adaptive-bound}
+  \|A^\top A - B^\top B\|_2 \;\le\; \frac{\|A - A_k\|_F^2}{\alpha_{\mathrm{mix}}\ell - k},
+\end{equation}
+with $\alpha_{\mathrm{mix}} \in [6/41,\, 1]$ a function of the fraction of
+SFD-handled batches; the all-FD limit ($\alpha_{\mathrm{mix}} = 1$) recovers
+\eqref{eq:fd-bound} and the all-SFD limit ($\alpha_{\mathrm{mix}} = 6/41$)
+recovers \eqref{eq:sfd-bound}. Failure probability inherits from the SFD
+branch: each SFD shrink fails with probability at most $\delta$, so over
+$T$ shrinks Adaptive is a Las Vegas algorithm with cumulative failure
+probability $\le n_{\mathrm{sfd}}\,\delta$ via union bound. We do not
+formalise the composition --- \eqref{eq:adaptive-bound} is the worst-case
+envelope, and the empirical covariance error in
+Sections~\ref{ssec:exp1}--\ref{ssec:exp4} sits well inside it.
 
 \subsection{Hardware calibration}
 \label{ssec:calib}
 
-% PARTNER: ~0.4 page.
-% Five (rows, density) probes timed once per (platform, d, ell). Least
-% squares fits alpha_fd, beta_sfd; result cached on disk. Quote the values
-% measured on M4 (alpha ~ 1.1e-8, beta ~ 1.1e-8) and on Colab T4 GPU
-% (different by ~10x). Argue this gives Adaptive automatic platform
-% portability: the same code biases toward FD on slow-FLOP / fast-launch
-% hardware and toward SFD on fast-FLOP / slow-launch hardware.
+The slope coefficients $(\alpha_{\mathrm{fd}}, \beta_{\mathrm{sfd}})$ are
+fitted once per $(\mathrm{platform}, d, \ell)$ triple. We time eight
+$(\mathrm{rows}, \rho)$ probes spanning small-to-larger shrink sizes and
+sparse-to-dense densities at the target $(d, \ell)$, run pure FD and pure
+SFD on each probe, and least-squares fit
+$T \approx \alpha\cdot \mathrm{flops} + \mathrm{intercept}$ separately for
+each algorithm. The selector (Algorithm~\ref{alg:adaptive}) uses only the
+slope; the intercept is retained for diagnostics and reflects fixed
+BLAS/LAPACK overhead that the per-row form already absorbs into
+$r_{\mathrm{fd}}$ and $r_{\mathrm{sfd}}$. Calibration is amortised over the
+streaming workload after a handful of shrinks and is cached on disk under
+\verb|~/.cache/sfd_calibration/|; subsequent runs at the same $(d, \ell,
+\mathrm{device})$ skip the timing pass.
+
+On our reference Apple~M4 CPU at $d = 500, \ell = 20$ the fitted values are
+$\alpha_{\mathrm{fd}} = 2.78 \times 10^{-9}$ s/flop and $\beta_{\mathrm{sfd}}
+= 2.59 \times 10^{-9}$ s/flop, so the two branches have nearly equal
+per-flop cost ($\beta_{\mathrm{sfd}} / \alpha_{\mathrm{fd}} \approx 0.93$);
+the per-batch decision is therefore dominated by the flop count rather than
+by which routine executes more efficiently. On a different platform the
+relative cost of dense SVD versus sparse SimultaneousIteration shifts: on
+the Colab~T4 GPU used for Section~\ref{ssec:cpu-gpu}, GPU FD pays large
+kernel-launch overhead at small batch sizes while GPU SFD scales linearly
+with $\rho$ as on CPU, so a re-fit on that hardware would produce
+coefficients that bias the per-batch decision toward SFD. The selector
+logic itself is unchanged. This portability is the practical reason for
+fitting two slopes rather than hard-coding a static density threshold ---
+the optimal threshold is hardware-dependent, but the cost-balance equation
+$c_{\mathrm{fd}} = c_{\mathrm{sfd}}$ is not.
 
 % ============================================================================
 \section{Contribution D: Sketch-Drift Effective Density}
 \label{sec:rho-eff}
 
-% PARTNER TODO --- approx 0.75 page.
-%
-% Goal: state the claim, give the multiplicative shrinkage of rho*, and
-% show the empirical trajectory (Figure 1) confirms it.
-%
-% Outline:
-%
-% (1) Define rho_eff(t) := nnz(M_t) / ((ell + r_t) d), the density of the
-%     implicit buffer at shrink t.
-%
-% (2) State and motivate the claim:
-%       Claim. After the first shrink, B_t is dense, so nnz(B_t) = ell*d
-%       and therefore
-%           rho_eff(t) >= ell / (ell + r_t)
-%       independent of the input density rho.
-%     One-sentence sketch: a single SVD shrink produces a generic dense
-%     factor; subsequent batches are appended to a buffer that is already
-%     fully dense, so the density floor depends only on the *batching*
-%     ratio r_t / ell, not on rho.
-%
-% (3) Plug in the paper's nnz batching (r_t chosen so nnz(batch_t) ~ ell*d):
-%         rho_eff(t) >= 1/2.
-%     Combined with the SFD cost model, predict
-%         empirical crossover  ~  rho* * nnz(batch) / (ell*d + nnz(batch))
-%     which in the symmetric regime collapses to ~ rho*/2, two orders of
-%     magnitude tighter than the textbook prediction.
-%
-% (4) Reference Figure 1 (rho_eff trajectory) and Figure 2 (density sweep)
-%     to argue the empirical crossover at ~0.3 matches the prediction far
-%     better than the textbook 0.96. Tie back to the cost model in
-%     Section~\ref{sec:adaptive}: rho_eff is the density that beta_sfd
-%     actually sees, justifying why the calibrated coefficient is so close
-%     to alpha_fd in absolute terms.
-%
-% (5) Optionally: contrast with the log(1/delta) Chernoff correction --- our
-%     effect is purely combinatorial, requires no probability argument, and
-%     therefore explains the gap even at delta = 0.
+Define the \emph{effective density} of the implicit SFD buffer at the $t$-th
+shrink as
+\begin{equation}
+\label{eq:rho-eff-def}
+  \rho_{\mathrm{eff}}(t) \;:=\; \frac{\mathrm{nnz}(M_t)}{(\ell + r_t)\,d}
+  \;=\; \frac{\mathrm{nnz}(B_{t-1}) + \mathrm{nnz}(\mathrm{batch}_t)}{(\ell + r_t)\,d},
+\end{equation}
+where $r_t$ is the number of rows in batch $t$ and $B_{t-1}$ is the running
+sketch on entry to shrink $t$. Because the SFD cost model
+(Algorithm~\ref{alg:adaptive}, line 4) charges $\mathrm{nnz}(M_t)$ rather
+than the input density $\rho$, $\rho_{\mathrm{eff}}(t)$ is the quantity that
+actually drives the selector's decisions.
+
+\begin{claim}[Density floor]
+\label{claim:floor}
+For every $t \ge 2$, independent of the input density $\rho$,
+\[
+  \rho_{\mathrm{eff}}(t) \;\ge\; \frac{\ell}{\ell + r_t}.
+\]
+\end{claim}
+
+\noindent\emph{Proof sketch.} A single FD-style shrink writes
+$B_{t-1} \leftarrow s_{\mathrm{shrunk}} \cdot V_{\le \ell}^\top$ where the
+rows of $V_{\le \ell}^\top$ are the top-$\ell$ right singular vectors of
+$M_{t-1}$. Over absolutely-continuous input distributions these singular
+vectors are dense in $\mathbb{R}^d$ with probability one, so
+$\mathrm{nnz}(B_{t-1}) = \ell d$ for every $t \ge 2$. Substituting into
+\eqref{eq:rho-eff-def} and dropping the non-negative
+$\mathrm{nnz}(\mathrm{batch}_t)$ term gives the bound. \qed
+
+The floor depends only on the \emph{batching ratio} $r_t / \ell$, not on
+the input density. Plugging in the nnz-based batching of \cite{ghashami2016sfd},
+where $\mathrm{nnz}(\mathrm{batch}_t) \approx \ell d$ and consequently
+$r_t \approx \ell / \rho$ for a homogeneous-density stream, gives
+\begin{equation}
+\label{eq:rho-eff-eq}
+  \rho_{\mathrm{eff}}(t) \;\approx\; \frac{\ell d + \ell d}{(\ell + \ell/\rho)\,d}
+  \;=\; \frac{2\rho}{1 + \rho},
+\end{equation}
+which evaluates to $\approx 2\rho$ for small $\rho$: the implicit buffer is
+roughly twice as dense as the input. Figure~\ref{fig:rho-eff} verifies
+\eqref{eq:rho-eff-eq} numerically. Across input densities $\rho \in
+\{0.005,$ $0.02, 0.05, 0.1, 0.2\}$ at $d = 1000, \ell = 20$, the measured
+$\rho_{\mathrm{eff}}$ matches $2\rho/(1+\rho)$ to four decimal places on
+every shrink past the first, and the drift factor $\rho_{\mathrm{eff}}/\rho$
+ranges from $1.99$ at $\rho = 0.005$ down to $1.67$ at $\rho = 0.2$.
+
+Equation~\eqref{eq:rho-eff-eq} accounts for one factor of two in the gap
+between the textbook crossover $\rho^\star = 1 - \ell/d \approx 0.96$ and
+the empirical crossover near $\rho \approx 0.3$ (Section~\ref{ssec:exp1}).
+The textbook derivation equates SFD's $O(\mathrm{nnz}(M)\,\ell)$ leading
+term with FD's $O((\ell+r)\,d\,\ell)$, treating
+$\mathrm{nnz}(M)/((\ell+r)d)$ as the input density $\rho$; by
+\eqref{eq:rho-eff-eq} that ratio is in fact $\rho_{\mathrm{eff}} \approx
+2\rho$, so the equation should be balanced at $2\rho^\star$, halving the
+predicted threshold to $\approx 0.48$. The remaining gap to the observed
+$\approx 0.3$ is absorbed by the $n_{\mathrm{iter}}$ factor on the leading
+SFD term and the $(\ell + r)\,\ell^2$ lower-order correction --- both of
+which the Adaptive cost model in Algorithm~\ref{alg:adaptive} accounts for
+directly because it computes $\mathrm{nnz}(M_{\mathrm{sfd}})$ from the
+running buffer rather than from a textbook closed form. This is also the
+reason the calibrated $\beta_{\mathrm{sfd}}$ comes out close to
+$\alpha_{\mathrm{fd}}$ on the M4 in Section~\ref{ssec:calib}: the cost
+model is already paying for $\rho_{\mathrm{eff}}$ inside
+$\mathrm{nnz}(M_{\mathrm{sfd}})$, so the residual fit only has to capture
+the per-flop hardware cost.
+
+We emphasise that Claim~\ref{claim:floor} is purely combinatorial: it
+makes no probability argument, depends on no $\delta$, and holds even at
+$\delta = 0$. This distinguishes our diagnosis from a Chernoff-style
+$\log(1/\delta)$ correction to SFD's bound \eqref{eq:sfd-bound}, which
+would tighten the failure probability but leave the cost model unchanged.
+The drift in $\rho_{\mathrm{eff}}$ is a structural feature of any streaming
+algorithm that maintains a dense low-rank summary; the SFD cost model is
+sound only when it is computed against $\rho_{\mathrm{eff}}$, which is
+exactly what Algorithm~\ref{alg:adaptive} does.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.75\linewidth]{exp2_rho_eff_trajectory.pdf}
-  \caption{Effective density $\rho_{\mathrm{eff}}(t)$ at every shrink for three
-    input densities. After the first shrink the dense sketch $B$ contributes
-    $\ell d$ nonzeros, lifting $\rho_{\mathrm{eff}}$ above
-    $\ell/(\ell + r_t)$ regardless of $\rho$. The sparse subroutine therefore
-    never operates on a truly sparse buffer past $t = 1$.}
+  \caption{Sketch-drift effective density at $d = 1000, \ell = 20$. \emph{Left:}
+    $\rho_{\mathrm{eff}}(t)$ at every shrink for five input densities; the
+    dotted lines mark the corresponding input $\rho$. After the first shrink
+    the dense sketch $B$ contributes $\ell d$ nonzeros, lifting
+    $\rho_{\mathrm{eff}}$ above $\ell/(\ell + r_t)$ regardless of $\rho$, and
+    the trajectory immediately settles onto $2\rho/(1+\rho)$ for the rest of
+    the stream. \emph{Right:} drift factor $\rho_{\mathrm{eff}}/\rho$ versus
+    input $\rho$; the factor is $\approx 2$ at small $\rho$ and decreases
+    monotonically toward $1$ as $\rho \to 1$, matching
+    \eqref{eq:rho-eff-eq} exactly.}
   \label{fig:rho-eff}
 \end{figure}
 
