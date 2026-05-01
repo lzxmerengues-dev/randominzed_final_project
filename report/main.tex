@@ -109,7 +109,8 @@ guards against bad $\Omega$ draws, with $O(\log(1/\delta))$ expected retries.
 With probability $\ge 1{-}\delta$,
 \begin{equation}
 \label{eq:sfd-bound}
-  \|A^\top A - B^\top B\|_2 \;\le\; \frac{\|A - A_k\|_F^2}{\alpha\ell - k},
+  \|A^\top A - B^\top B\|_2 \;\le\; \frac{\|A - A_k\|_F^2}{\alpha\ell - k}
+  \quad\text{for any } 0 \le k < \alpha\ell,
   \qquad \alpha = 6/41,
 \end{equation}
 at per-shrink cost $O(\mathrm{nnz}(M) \cdot \ell \cdot n_{\mathrm{iter}} + (\ell+r)\ell^2)$.
@@ -186,7 +187,8 @@ does not invalidate the streaming guarantee. The output bound degrades to
 the weaker of \eqref{eq:fd-bound} and \eqref{eq:sfd-bound}:
 \begin{equation}
 \label{eq:adaptive-bound}
-  \|A^\top A - B^\top B\|_2 \;\le\; \frac{\|A - A_k\|_F^2}{\alpha_{\mathrm{mix}}\ell - k},
+  \|A^\top A - B^\top B\|_2 \;\le\; \frac{\|A - A_k\|_F^2}{\alpha_{\mathrm{mix}}\ell - k}
+  \quad\text{for any } 0 \le k < \alpha_{\mathrm{mix}}\ell,
 \end{equation}
 with $\alpha_{\mathrm{mix}} \in [6/41,\, 1]$ a function of the fraction of
 SFD-handled batches; the all-FD limit ($\alpha_{\mathrm{mix}} = 1$) recovers
@@ -345,11 +347,13 @@ exactly what Algorithm~\ref{alg:adaptive} does.
 We compare three algorithms --- classical FD, SFD, and Adaptive --- on
 synthetic sparse matrices, two real corpora, and across CPU/GPU platforms.
 Synthetic matrices are generated row-wise with a low-rank signal at randomly
-chosen support and Gaussian noise; the marginal density $\rho$ is exact. Each
-run reports wall-clock time and the relative covariance error
-$\mathrm{rel\_err} = \|A^\top A - B^\top B\|_2 / \|A - A_k\|_F^2$ with $k = 1$.
-Synthetic configurations are averaged over three random seeds (median $\pm$
-IQR). Hardware: Apple M4 (synthetic, real); Google Colab T4 GPU (Section~\ref{ssec:cpu-gpu}).
+chosen support and Gaussian noise; each row carries exactly $\lceil \rho d
+\rceil$ nonzeros, so the realised density is $\lceil \rho d \rceil / d$
+(equal to $\rho$ except at the smallest $\rho = 0.005$ with $d = 500$, where
+rounding gives $0.004$). Each run reports wall-clock time and the relative
+covariance error $\mathrm{rel\_err} = \|A^\top A - B^\top B\|_2 / \|A -
+A_k\|_F^2$ with $k = 1$. Synthetic configurations are summarised over three
+random seeds as median $\pm$ IQR. Hardware: Apple M4 (synthetic, real); Google Colab T4 GPU (Section~\ref{ssec:cpu-gpu}).
 All code, data generators, raw JSON results, and instructions to reproduce
 the GPU experiment on a free Colab account are versioned at our GitHub
 repository.
