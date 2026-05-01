@@ -381,7 +381,7 @@ claims onto the experiments that verify them.
     Floor holds for all $\rho \in \{0.005, 0.02, 0.05, 0.1, 0.2\}$ \\
     Adaptive matches SFD across the density sweep and on real data &
     Density sweep (Fig.~\ref{fig:exp1}); real data (Fig.~\ref{fig:exp4}) &
-    Within $\pm 5\%$ of SFD on synthetic; matches SFD on 5/6 real cells \\
+    Within $\pm 8\%$ of SFD on synthetic; matches SFD on 4/6 real cells \\
     Adaptive strictly wins on density-mixed streams &
     Mixed stream (Fig.~\ref{fig:exp3}) &
     $1.14\times$ vs.\ SFD, $1.64\times$ vs.\ FD \\
@@ -403,7 +403,8 @@ Pure FD's wall-clock is essentially flat at $\sim$60\,ms (density-oblivious).
 Pure SFD scales linearly with $\rho$, beating FD by $\approx 8\times$ at
 $\rho = 0.005$ and reaching parity near $\rho \approx 0.3$ --- more than
 threefold below the textbook $\rho^\star = 0.96$. Adaptive tracks SFD to
-within $\pm 5\%$ at every density, including $\rho = 0.3$, where pure FD
+within $\pm 8\%$ at every density (median deviation $\le 2\%$), including
+$\rho = 0.3$, where pure FD
 becomes the faster choice but the per-batch decision in this fixed-density
 sweep does not switch sharply enough to recover FD's edge. The Adaptive
 advantage is sharper on density-mixed streams (Section~\ref{ssec:exp3}),
@@ -420,7 +421,7 @@ the analytical bounds \eqref{eq:fd-bound} and \eqref{eq:sfd-bound}.
   \includegraphics[width=0.7\linewidth]{exp1_density_sweep.pdf}
   \caption{Wall-clock and covariance error for FD, SFD, and Adaptive at
     $n = 2000$, $d = 500$, $\ell = 20$. Adaptive tracks SFD to within $\pm
-    5\%$ across the sweep; the empirical crossover where FD overtakes SFD
+    8\%$ across the sweep; the empirical crossover where FD overtakes SFD
     sits near $\rho \approx 0.3$, far below the textbook $\rho^\star = 0.96$.
     The Adaptive advantage emerges on density-mixed streams (Fig.~\ref{fig:exp3})
     rather than on a fixed-density sweep.}
@@ -439,9 +440,11 @@ $1.93$\,s, against SFD's $2.21$\,s and FD's $3.16$\,s --- a $1.14\times$
 speedup over SFD and a $1.64\times$ speedup over FD, with covariance error
 between the two ($\mathrm{rel\_err} = 0.017$ for Adaptive vs.\ $0.015$ for
 SFD and $0.025$ for FD). The right panel shows Adaptive's per-batch
-decision aggregated over three seeds: it selects SFD on $5$ sparse batches
-total and FD on $500$ dense batches total ($505$ batches across the run),
-with the switch aligning with the input phase transition at row $20{,}000$.
+decision from a single instrumented run (seed $0$): it selects SFD on the
+$5$ sparse batches at the start of the stream and FD on the $500$ dense
+batches that follow ($505$ batches in total), with the switch aligning
+with the input phase transition at row $20{,}000$. The wall-clock summary
+on the left aggregates three seeds.
 
 \begin{figure}[t]
   \centering
@@ -460,11 +463,12 @@ Figure~\ref{fig:exp4} reports wall-clock on MovieLens-1M ($n = 6{,}040$,
 $d = 3{,}952$, $\rho = 0.042$) and 20 Newsgroups ($n = 18{,}846$, $d = 5{,}000$,
 $\rho = 0.015$) at $\ell \in \{10, 30, 100\}$. Both corpora sit well below the
 empirical crossover, so SFD already dominates: across all six
-$(\mathrm{dataset}, \ell)$ cells SFD is $4$ to $20\times$ faster than FD.
-Adaptive matches SFD within seed-noise on five of six cells; the sixth
-(MovieLens, $\ell = 10$) is a regression of the older per-batch variant
-flagged in the setup. The covariance error of Adaptive is
-indistinguishable from SFD's on every cell. The principal value of Adaptive
+$(\mathrm{dataset}, \ell)$ cells SFD is $5\times$ to $28\times$ faster
+than FD. Adaptive matches SFD within $\pm 5\%$ on four of six cells; two
+cells regress (MovieLens, $\ell=10$ runs at $2.5\times$ SFD; 20 Newsgroups,
+$\ell = 100$ runs at $1.31\times$ SFD), both attributable to the older
+per-batch Adaptive variant flagged in the setup. The covariance error of
+Adaptive is indistinguishable from SFD's on every cell. The principal value of Adaptive
 on these workloads is therefore not raw speedup over SFD --- there is no room
 to win when SFD is already the right tool --- but the absence of a regression
 relative to it.
@@ -473,8 +477,9 @@ relative to it.
   \centering
   \includegraphics[width=0.95\linewidth]{exp4_real_data.pdf}
   \caption{Wall-clock on MovieLens-1M and 20 Newsgroups at $\ell \in \{10, 30, 100\}$.
-    SFD dominates FD by $4\text{--}20\times$; Adaptive matches SFD on five of
-    six cells.}
+    SFD dominates FD by $5\text{--}28\times$; Adaptive matches SFD within
+    $\pm 5\%$ on four of six cells, regresses on two (MovieLens, $\ell=10$
+    and 20 Newsgroups, $\ell=100$).}
   \label{fig:exp4}
 \end{figure}
 
@@ -518,8 +523,9 @@ re-fitted GPU coefficients in this paper.
 $(\mathrm{rows}, \mathrm{nnz})$ and ignores cache and memory-bandwidth
 effects. This introduces a 5--15\% miss on small sketches and explains the
 narrow Adaptive--SFD gap at $\rho \approx 0.3$ in Figure~\ref{fig:exp1}.
-Calibration adds a one-time $\sim$30 second cost that amortizes only for
-streams larger than $\sim$$10^5$ rows; on shorter streams a static threshold
+Calibration adds a one-time cost of a few seconds ($\approx 5$\,s on our
+reference M4) that amortizes only for streams larger than $\sim$$10^5$
+rows; on shorter streams a static threshold
 can match Adaptive in raw wall-clock. The covariance bound degrades
 multiplicatively with the fraction of SFD-handled batches, inheriting SFD's
 Monte~Carlo guarantee at worst (Section~\ref{ssec:adaptive-correct}).
