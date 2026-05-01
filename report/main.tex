@@ -33,15 +33,15 @@ We revisit Sparse Frequent Directions (SFD) of Ghashami, Liberty, and
 Phillips~\cite{ghashami2016sfd}, a streaming covariance sketch designed to
 exploit input sparsity. The textbook crossover between classical Frequent
 Directions (FD)~\cite{liberty2013fd} and SFD lives at $\rho^\star = 1 - \ell/d$,
-yet in practice the empirical crossover sits an order of magnitude below
+yet in practice the empirical crossover sits roughly threefold below
 $\rho^\star$. We diagnose this gap with two contributions. First, the
 \emph{sketch-drift effective density} bound shows that the relevant density at
 shrink time is not the input $\rho$ but the density of the implicit buffer
 $M = [B; \mathrm{batch}]$, which is bounded below by a structural constant
 independent of $\rho$. Second, an \emph{adaptive FD/SFD selector}, calibrated
 once on the running hardware, picks the cheaper subroutine per shrink. On a
-mixed-density stream the adaptive sketch is $1.7\times$ faster than SFD and
-$1.9\times$ faster than FD; on real text and recommendation matrices it
+mixed-density stream the adaptive sketch is $1.14\times$ faster than SFD and
+$1.64\times$ faster than FD; on real text and recommendation matrices it
 matches the better baseline at every sketch size we tested.
 \end{abstract}
 
@@ -65,8 +65,8 @@ $\rho^\star = 1 - \ell/d$. For practical parameters --- our experiments use
 $\ell = 20, d = 500$, giving $\rho^\star = 0.96$ --- this prediction is
 comically permissive: every real sparse matrix sits below it. Yet our
 measurements (Section~\ref{sec:exp}) place the empirical crossover near
-$\rho \approx 0.3$, almost three orders of magnitude lower. The gap is not
-explained by the standard $\log(1/\delta)$ Chernoff correction.
+$\rho \approx 0.3$, more than threefold lower. The gap is not explained
+by the standard $\log(1/\delta)$ Chernoff correction.
 
 This paper diagnoses the gap and prescribes a fix. Section~\ref{sec:sfd}
 recaps FD and SFD in self-contained form. Section~\ref{sec:adaptive} describes
@@ -192,11 +192,13 @@ with $\alpha_{\mathrm{mix}} \in [6/41,\, 1]$ a function of the fraction of
 SFD-handled batches; the all-FD limit ($\alpha_{\mathrm{mix}} = 1$) recovers
 \eqref{eq:fd-bound} and the all-SFD limit ($\alpha_{\mathrm{mix}} = 6/41$)
 recovers \eqref{eq:sfd-bound}. Failure probability inherits from the SFD
-branch: each SFD shrink fails with probability at most $\delta$, so over
-$T$ shrinks Adaptive is a Las Vegas algorithm with cumulative failure
-probability $\le n_{\mathrm{sfd}}\,\delta$ via union bound. We do not
-formalise the composition --- \eqref{eq:adaptive-bound} is the worst-case
-envelope, and the empirical covariance error in
+branch: each \textsc{BoostedSparseShrink} call exhausts its retry budget
+with probability at most $\delta$ and falls back to the last (unverified)
+candidate, so over $n_{\mathrm{sfd}}$ SFD-handled batches Adaptive is a
+Monte~Carlo algorithm with cumulative failure probability
+$\le n_{\mathrm{sfd}}\,\delta$ via union bound. We do not formalise the
+composition --- \eqref{eq:adaptive-bound} is the worst-case envelope, and
+the empirical covariance error in
 Sections~\ref{ssec:exp1}--\ref{ssec:exp4} sits well inside it.
 
 \subsection{Hardware calibration}
@@ -283,25 +285,30 @@ $\rho_{\mathrm{eff}}$ matches $2\rho/(1+\rho)$ to four decimal places on
 every shrink past the first, and the drift factor $\rho_{\mathrm{eff}}/\rho$
 ranges from $1.99$ at $\rho = 0.005$ down to $1.67$ at $\rho = 0.2$.
 
-Equation~\eqref{eq:rho-eff-eq} accounts for one factor of two in the gap
-between the textbook crossover $\rho^\star = 1 - \ell/d \approx 0.96$ and
-the empirical crossover near $\rho \approx 0.3$ (Section~\ref{ssec:exp1}).
-The textbook derivation equates SFD's $O(\mathrm{nnz}(M)\,\ell)$ leading
-term with FD's $O((\ell+r)\,d\,\ell)$, treating
+Equation~\eqref{eq:rho-eff-eq} is one of three reasons the empirical
+crossover near $\rho \approx 0.3$ (Section~\ref{ssec:exp1}) sits well
+below the textbook $\rho^\star = 1 - \ell/d \approx 0.96$. The textbook
+derivation equates SFD's $O(\mathrm{nnz}(M)\,\ell)$ leading term with
+FD's $O((\ell+r)\,d\,\ell)$, treating
 $\mathrm{nnz}(M)/((\ell+r)d)$ as the input density $\rho$; by
-\eqref{eq:rho-eff-eq} that ratio is in fact $\rho_{\mathrm{eff}} \approx
-2\rho$, so the equation should be balanced at $2\rho^\star$, halving the
-predicted threshold to $\approx 0.48$. The remaining gap to the observed
-$\approx 0.3$ is absorbed by the $n_{\mathrm{iter}}$ factor on the leading
-SFD term and the $(\ell + r)\,\ell^2$ lower-order correction --- both of
-which the Adaptive cost model in Algorithm~\ref{alg:adaptive} accounts for
-directly because it computes $\mathrm{nnz}(M_{\mathrm{sfd}})$ from the
-running buffer rather than from a textbook closed form. This is also the
-reason the calibrated $\beta_{\mathrm{sfd}}$ comes out close to
-$\alpha_{\mathrm{fd}}$ on the M4 in Section~\ref{ssec:calib}: the cost
-model is already paying for $\rho_{\mathrm{eff}}$ inside
-$\mathrm{nnz}(M_{\mathrm{sfd}})$, so the residual fit only has to capture
-the per-flop hardware cost.
+\eqref{eq:rho-eff-eq} that ratio is in fact $\rho_{\mathrm{eff}} =
+2\rho/(1+\rho)$, which is strictly larger than $\rho$ for every input
+$\rho < 1$ but coincides with $\rho$ at $\rho = 1$. The textbook prediction
+under-counts the SFD cost by exactly this factor. Two further factors,
+also absent from the textbook derivation but present in
+Algorithm~\ref{alg:adaptive} line 4, push the predicted crossover further
+down: the $n_{\mathrm{iter}}$ multiplier on the leading SFD term (set to
+$4$ in our experiments) and the $(\ell + r)\,\ell^2$ lower-order term that
+becomes non-negligible once $r \ll d$. Adaptive captures all three
+corrections directly because it computes $\mathrm{nnz}(M_{\mathrm{sfd}})$
+from the running buffer and includes both the $n_{\mathrm{iter}}$ and
+$\ell^2$ terms explicitly; the empirical $\rho \approx 0.3$ is the joint
+effect of all three, fit to the platform by the calibration step in
+Section~\ref{ssec:calib}. We do not pursue a closed-form prediction. As a
+side note, the same effect explains why the calibrated $\beta_{\mathrm{sfd}}$
+sits close to $\alpha_{\mathrm{fd}}$ on the M4: the cost model is already
+paying for $\rho_{\mathrm{eff}}$ inside $\mathrm{nnz}(M_{\mathrm{sfd}})$,
+so the residual fit only has to capture per-flop hardware cost.
 
 We emphasise that Claim~\ref{claim:floor} is purely combinatorial: it
 makes no probability argument, depends on no $\delta$, and holds even at
@@ -377,10 +384,10 @@ claims onto the experiments that verify them.
     Within seed-noise of lower envelope on 5/6 real cells, all synthetic \\
     Adaptive strictly wins on density-mixed streams &
     Mixed stream (Fig.~\ref{fig:exp3}) &
-    $1.7\times$ vs.\ SFD, $1.9\times$ vs.\ FD \\
+    $1.14\times$ vs.\ SFD, $1.64\times$ vs.\ FD \\
     Calibration ports the cost model across hardware &
     CPU vs.\ GPU (Fig.~\ref{fig:exp5}) &
-    M4 and T4 coefficients differ $\sim 10\times$; Adaptive tracks both \\
+    GPU FD/SFD shift relative to CPU; Adaptive on GPU not measured \\
     \bottomrule
   \end{tabular}
   \caption{Proposal claims and the experiments that verify them.}
@@ -393,13 +400,20 @@ claims onto the experiments that verify them.
 Figure~\ref{fig:exp1} sweeps the input density across
 $\rho \in \{0.005, 0.02, 0.05, 0.1, 0.3\}$ at $n = 2000$, $d = 500$, $\ell = 20$.
 Pure FD's wall-clock is essentially flat at $\sim$60\,ms (density-oblivious).
-Pure SFD scales linearly with $\rho$, beating FD by $17\times$ at $\rho = 0.005$
-and reaching parity at $\rho \approx 0.3$ --- almost three orders of magnitude
-below the textbook $\rho^\star = 0.96$. Adaptive matches the lower envelope at
-every density, including a small win over both baselines at $\rho = 0.3$, where
-the per-batch decision flips selectively. Covariance errors are within 10\% of
-SFD's at every density; the only error increase is at $\rho = 0.3$, where the
-FD branch pays the FD covariance bound rather than the looser SFD one.
+Pure SFD scales linearly with $\rho$, beating FD by $\approx 8\times$ at
+$\rho = 0.005$ and reaching parity near $\rho \approx 0.3$ --- more than
+threefold below the textbook $\rho^\star = 0.96$. Adaptive tracks SFD to
+within $\pm 5\%$ at every density, including $\rho = 0.3$, where pure FD
+becomes the faster choice but the per-batch decision in this fixed-density
+sweep does not switch sharply enough to recover FD's edge. The Adaptive
+advantage is sharper on density-mixed streams (Section~\ref{ssec:exp3}),
+where the optimal subroutine genuinely flips mid-stream. Covariance errors
+match SFD's exactly on the four sparse densities (Adaptive selects the SFD
+branch on every batch). At $\rho = 0.3$ the Adaptive error rises to
+$\approx 1.44\times$ SFD's measured error: some batches are routed through
+the FD branch, whose measured error on this matrix happens to exceed SFD's,
+so the mixed run interpolates between the two. Both runs remain well inside
+the analytical bounds \eqref{eq:fd-bound} and \eqref{eq:sfd-bound}.
 
 \begin{figure}[t]
   \centering
@@ -414,22 +428,24 @@ FD branch pays the FD covariance bound rather than the looser SFD one.
 \subsection{Mixed-density stream}
 \label{ssec:exp3}
 
-Figure~\ref{fig:exp3} reports the headline result. The input is a 40,000-row
-stream of 20,000 sparse rows ($\rho_1 = 0.005$) followed by 20,000 dense rows
-($\rho_2 = 0.5$), with $d = 1000$ and $\ell = 20$. Pure FD wastes $O(d\ell)$
-work on every sparse batch; pure SFD pays the boosted-shrink retry overhead
-on every dense batch. Adaptive sidesteps both pitfalls: $0.88$\,s, against
-SFD's $1.47$\,s and FD's $1.70$\,s --- a $1.7\times$ speedup over SFD and a
-$1.9\times$ speedup over FD, while staying within 10\% of SFD's covariance
-error. The right panel shows Adaptive's per-batch decision: it selects SFD on
-the first five (sparse) batches and FD on every subsequent (dense) batch,
-with the switch aligning exactly with the input phase transition at row 20{,}000.
+Figure~\ref{fig:exp3} reports the headline result. The input is a 40{,}000-row
+stream of $20{,}000$ sparse rows ($\rho_1 = 0.005$) followed by $20{,}000$
+dense rows ($\rho_2 = 0.5$), with $d = 1000$ and $\ell = 20$. Pure FD wastes
+$O(d\ell)$ work on every sparse batch; pure SFD pays the boosted-shrink
+retry overhead on every dense batch. Adaptive sidesteps both pitfalls:
+$1.93$\,s, against SFD's $2.21$\,s and FD's $3.16$\,s --- a $1.14\times$
+speedup over SFD and a $1.64\times$ speedup over FD, with covariance error
+between the two ($\mathrm{rel\_err} = 0.017$ for Adaptive vs.\ $0.015$ for
+SFD and $0.025$ for FD). The right panel shows Adaptive's per-batch
+decision aggregated over three seeds: it selects SFD on $5$ sparse batches
+total and FD on $500$ dense batches total ($505$ batches across the run),
+with the switch aligning with the input phase transition at row $20{,}000$.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.85\linewidth]{exp3_mixed_stream.pdf}
   \caption{Mixed-density stream. Left: total wall-clock --- Adaptive is
-    $1.7\times$ faster than SFD and $1.9\times$ faster than FD.
+    $1.14\times$ faster than SFD and $1.64\times$ faster than FD.
     Right: Adaptive's per-batch subroutine choice; the switch from SFD to
     FD aligns with the input's density phase transition.}
   \label{fig:exp3}
@@ -464,16 +480,21 @@ relative to it.
 \label{ssec:cpu-gpu}
 
 Figure~\ref{fig:exp5} re-runs the density sweep on a Colab T4 GPU using a
-CuPy backend. Two effects merit attention. First, GPU FD is roughly
-$2\times$ slower than CPU FD at the lowest densities: the FD branch performs
-many small $(40 \times 500)$ SVDs, and kernel-launch overhead dominates the
-flops. Second, GPU SFD is faster than CPU SFD at every $\rho$ tested, since
-its core operations (sparse mat-vecs on a fixed buffer) parallelize cleanly.
-The crossover therefore shifts further toward SFD on GPU; a static FD/SFD
-threshold would have to be retuned per platform. Adaptive's calibration step
-absorbs this shift automatically: the fitted $(\alpha_{\mathrm{fd}}, \beta_{\mathrm{sfd}})$
-on T4 differ from M4 by an order of magnitude, biasing the per-batch decision
-toward SFD without any user intervention.
+CuPy backend. We compare pure FD and pure SFD only --- a full Adaptive run
+on GPU was not collected, so this section is a hardware-shift diagnostic
+rather than a direct Adaptive validation. Two effects merit attention.
+First, GPU FD is roughly $2\times$ slower than CPU FD at the lowest
+densities: the FD branch performs many small $(40 \times 500)$ SVDs, and
+kernel-launch overhead dominates the flops. Second, GPU SFD is faster than
+CPU SFD at every $\rho$ tested, since its core operations (sparse mat-vecs
+on a fixed buffer) parallelize cleanly. The relative cost ratio of FD to
+SFD therefore shifts in SFD's favour on GPU, so a static FD/SFD threshold
+would have to be retuned per platform. The Adaptive calibration step is
+designed to absorb this shift automatically: re-running it on the GPU
+would refit $\alpha_{\mathrm{fd}}$ and $\beta_{\mathrm{sfd}}$ to the
+platform's measured per-flop cost, biasing the per-batch decision toward
+SFD without any change to the selector logic. We did not collect the
+re-fitted GPU coefficients in this paper.
 
 \begin{figure}[t]
   \centering
