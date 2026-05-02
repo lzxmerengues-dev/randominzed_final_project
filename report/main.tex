@@ -8,6 +8,7 @@
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage[hidelinks]{hyperref}
+\usepackage{placeins}
 \usepackage{microtype}
 \usepackage[numbers,sort&compress]{natbib}
 
@@ -323,7 +324,7 @@ algorithm that maintains a dense low-rank summary; the SFD cost model is
 sound only when it is computed against $\rho_{\mathrm{eff}}$, which is
 exactly what Algorithm~\ref{alg:adaptive} does.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.75\linewidth]{exp2_rho_eff_trajectory.pdf}
   \caption{Sketch-drift effective density at $d = 1000, \ell = 20$. \emph{Left:}
@@ -421,7 +422,7 @@ the FD branch, whose measured error on this matrix happens to exceed SFD's,
 so the mixed run interpolates between the two. Both runs remain well inside
 the analytical bounds \eqref{eq:fd-bound} and \eqref{eq:sfd-bound}.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.7\linewidth]{exp1_density_sweep.pdf}
   \caption{Wall-clock and covariance error for FD, SFD, and Adaptive at
@@ -451,7 +452,7 @@ batches that follow ($505$ batches in total), with the switch aligning
 with the input phase transition at row $20{,}000$. The wall-clock summary
 on the left aggregates three seeds.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.85\linewidth]{exp3_mixed_stream.pdf}
   \caption{Mixed-density stream. Left: total wall-clock --- Adaptive is
@@ -478,7 +479,7 @@ on these workloads is therefore not raw speedup over SFD --- there is no room
 to win when SFD is already the right tool --- but the absence of a regression
 relative to it.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.95\linewidth]{exp4_real_data.pdf}
   \caption{Wall-clock on MovieLens-1M and 20 Newsgroups at $\ell \in \{10, 30, 100\}$.
@@ -488,6 +489,7 @@ relative to it.
   \label{fig:exp4}
 \end{figure}
 
+\FloatBarrier
 \subsection{Hardware sensitivity: CPU vs.\ GPU}
 \label{ssec:cpu-gpu}
 
@@ -508,7 +510,7 @@ platform's measured per-flop cost, biasing the per-batch decision toward
 SFD without any change to the selector logic. We did not collect the
 re-fitted GPU coefficients in this paper.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.7\linewidth]{exp5_cpu_vs_gpu.pdf}
   \caption{Density sweep on CPU (M4) and GPU (Colab T4); pure FD and pure
@@ -519,6 +521,8 @@ re-fitted GPU coefficients in this paper.
     calibration described in Section~\ref{ssec:calib}.}
   \label{fig:exp5}
 \end{figure}
+
+\FloatBarrier
 
 % ============================================================================
 \section{Discussion}
