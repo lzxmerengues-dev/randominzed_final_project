@@ -42,7 +42,8 @@ independent of $\rho$. Second, an \emph{adaptive FD/SFD selector}, calibrated
 once on the running hardware, picks the cheaper subroutine per shrink. On a
 mixed-density stream the adaptive sketch is $1.14\times$ faster than SFD and
 $1.64\times$ faster than FD; on real text and recommendation matrices it
-matches the better baseline at every sketch size we tested.
+matches SFD on most of the cells we tested, with the remaining regressions
+traceable to an earlier per-batch variant of the cost model.
 \end{abstract}
 
 % ============================================================================
